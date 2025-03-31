@@ -1,0 +1,27 @@
+# Environment variables
+.env
+!.env.example
+
+# Virtual environment
+vkbot_env/
+env/
+venv/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Database files
+*.db
+*.sqlite3
+*.sqlite
+
+# Logs
+*.log
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
