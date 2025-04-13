@@ -99,27 +99,36 @@ class DatabaseHandler:
             Dict или None: Словарь с данными заявки или None, если заявка не найдена
         """
         try:
+            print(f"Поиск заявки с ID: {ticket_id}")
             conn = sqlite3.connect(self.db_path)
             # Настраиваем соединение для получения результатов в виде словаря
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
             # Поиск заявки по ID, приводим ID к строке для безопасности
-            cursor.execute("SELECT * FROM tickets WHERE ticket_id = ?", (str(ticket_id),))
+            ticket_id_str = str(ticket_id)
+            print(f"Выполняем SQL запрос для поиска заявки: SELECT * FROM tickets WHERE ticket_id = '{ticket_id_str}'")
+            cursor.execute("SELECT * FROM tickets WHERE ticket_id = ?", (ticket_id_str,))
             ticket_row = cursor.fetchone()
             
             if not ticket_row:
                 # Если заявка не найдена, возвращаем None
+                print(f"Заявка не найдена: {ticket_id}")
                 return None
             
             # Преобразуем строку JSON обратно в словарь Python
             ticket_data = dict(ticket_row)
             ticket_data['form_data'] = json.loads(ticket_data['form_data'])
             
+            # Убедимся, что user_id хранится как целое число
+            ticket_data['user_id'] = int(ticket_data['user_id'])
+            
             conn.close()
+            print(f"Заявка найдена: {ticket_id}, user_id={ticket_data['user_id']}")
             return ticket_data
-        except Exception:
+        except Exception as e:
             # В случае ошибки при получении заявки возвращаем None
+            print(f"Ошибка при получении заявки: {e}")
             return None
     
     def get_all_tickets(self, user_id: Optional[int] = None) -> List[Dict[str, Any]]:
@@ -193,31 +202,54 @@ class DatabaseHandler:
             # В случае ошибки при обновлении заявки возвращаем False
             return False
     
-    def delete_ticket(self, ticket_id: str) -> bool:
+    def delete_ticket(self, ticket_id: str, user_id: int) -> bool:
         """
         Удаление заявки из базы данных.
         
         Args:
-            ticket_id: Идентификатор заявки
+            ticket_id: Идентификатор заявки для удаления
+            user_id: ID пользователя ВКонтакте (для проверки прав доступа)
             
         Returns:
-            bool: True, если заявка успешно удалена, иначе False
+            bool: True если заявка успешно удалена, False если произошла ошибка
         """
         try:
+            # Подключаемся к базе данных
+            print(f"Попытка удаления заявки: {ticket_id} для пользователя: {user_id}")
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
-            # Удаляем заявку с указанным ID
-            cursor.execute("DELETE FROM tickets WHERE ticket_id = ?", (ticket_id,))
+            # Преобразуем ticket_id в строку и user_id в число для согласованности
+            ticket_id_str = str(ticket_id)
+            user_id_int = int(user_id)
             
-            if cursor.rowcount == 0:
-                # Если ни одна строка не была удалена, значит заявка не найдена
+            # Проверяем, существует ли заявка и принадлежит ли она указанному пользователю
+            sql_query = f"SELECT COUNT(*) FROM tickets WHERE ticket_id = '{ticket_id_str}' AND user_id = {user_id_int}"
+            print(f"Выполняем SQL запрос: {sql_query}")
+            cursor.execute(
+                "SELECT COUNT(*) FROM tickets WHERE ticket_id = ? AND user_id = ?",
+                (ticket_id_str, user_id_int)
+            )
+            result = cursor.fetchone()
+            print(f"Результат проверки: {result}")
+            
+            # Если заявка не найдена или принадлежит другому пользователю
+            if not result or result[0] == 0:
+                print(f"Заявка не найдена или принадлежит другому пользователю: {ticket_id}")
                 conn.close()
                 return False
             
+            # Удаляем заявку
+            print(f"Удаляем заявку: {ticket_id}")
+            cursor.execute(
+                "DELETE FROM tickets WHERE ticket_id = ? AND user_id = ?",
+                (ticket_id_str, user_id_int)
+            )
             conn.commit()
             conn.close()
+            print(f"Заявка успешно удалена: {ticket_id}")
+            
             return True
-        except Exception:
-            # В случае ошибки при удалении заявки возвращаем False
+        except Exception as e:
+            print(f"Ошибка при удалении заявки: {e}")
             return False

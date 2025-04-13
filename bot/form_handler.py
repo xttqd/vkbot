@@ -228,3 +228,33 @@ class FormHandler:
         else:
             # Если произошла ошибка при сохранении, возвращаем None
             return None
+    
+    def delete_ticket(self, user_id: int, ticket_id: str) -> bool:
+        """
+        Удаление заявки пользователя.
+        
+        Args:
+            user_id: ID пользователя ВКонтакте
+            ticket_id: Идентификатор заявки для удаления
+            
+        Returns:
+            bool: True если заявка успешно удалена, False в случае ошибки
+        """
+        print(f"FormHandler.delete_ticket: user_id={user_id} (тип: {type(user_id)}), ticket_id={ticket_id} (тип: {type(ticket_id)})")
+        
+        # Убеждаемся в правильных типах данных
+        user_id_int = int(user_id)
+        ticket_id_str = str(ticket_id)
+        
+        # Проверяем, существует ли заявка и удаляем ее
+        success = self.db_handler.delete_ticket(ticket_id_str, user_id_int)
+        print(f"FormHandler.delete_ticket: Результат удаления: {success}")
+        
+        # Если заявка успешно удалена и у нас хранится список заявок пользователя в памяти
+        if success and user_id_int in self.user_tickets:
+            # Удаляем заявку из списка заявок пользователя в памяти
+            if ticket_id_str in self.user_tickets[user_id_int]:
+                self.user_tickets[user_id_int].remove(ticket_id_str)
+                print(f"FormHandler.delete_ticket: Заявка удалена из кэша пользователя")
+        
+        return success
