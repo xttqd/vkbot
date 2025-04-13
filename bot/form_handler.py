@@ -1,6 +1,4 @@
 from typing import Dict, List, Optional, Tuple
-import json
-import os
 from datetime import datetime
 from db_handler import DatabaseHandler
 

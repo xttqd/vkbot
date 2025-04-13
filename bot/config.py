@@ -4,7 +4,6 @@
 
 import os
 from dotenv import load_dotenv
-from pathlib import Path
 
 # Пытаемся загрузить файл .env из текущей директории или родительской директории
 if os.path.exists('.env'):
