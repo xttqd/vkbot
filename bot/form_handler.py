@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 import json
 import os
 from datetime import datetime
@@ -84,6 +84,48 @@ class FormHandler:
         # Возвращаем текущий вопрос
         return f"Пожалуйста, укажите: {self.form_fields[current_field_idx]}"
     
+    def validate_field(self, field_name: str, value: str) -> Tuple[bool, str]:
+        """
+        Валидация ответа пользователя в зависимости от типа поля.
+        
+        Args:
+            field_name: Название поля для валидации
+            value: Введенное пользователем значение
+            
+        Returns:
+            tuple: (bool, str) - результат валидации (успех/неуспех) и сообщение об ошибке (если есть)
+        """
+        if not value.strip():
+            return False, "Поле не может быть пустым. Пожалуйста, укажите значение."
+            
+        if "имя" in field_name.lower():
+            if len(value) < 2:
+                return False, "Имя должно содержать минимум 2 символа."
+            
+        elif "почта" in field_name.lower() or "email" in field_name.lower():
+            import re
+            # Проверка формата email
+            if not re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', value):
+                return False, "Неверный формат электронной почты. Пример: example@mail.ru"
+            
+        elif "телефон" in field_name.lower():
+            import re
+            # Удаляем все нецифровые символы для проверки
+            cleaned_phone = re.sub(r'\D', '', value)
+            # Проверяем, что после удаления нецифровых символов осталось 10-15 цифр
+            if not (10 <= len(cleaned_phone) <= 15):
+                return False, "Неверный формат номера телефона. Укажите номер в формате +7XXXXXXXXXX или 8XXXXXXXXXX"
+            
+        elif "компани" in field_name.lower() or "организац" in field_name.lower():
+            if len(value) < 3:
+                return False, "Название компании должно содержать минимум 3 символа."
+            
+        elif "описание" in field_name.lower():
+            if len(value) < 10:
+                return False, "Описание должно содержать минимум 10 символов."
+                
+        return True, ""
+    
     def process_answer(self, user_id: int, answer: str) -> str:
         """
         Обработка ответа пользователя и переход к следующему вопросу.
@@ -106,8 +148,15 @@ class FormHandler:
         if current_field_idx >= len(self.form_fields):
             return """На все вопросы получены ответы. Нажмите "Отправить", чтобы создать заявку."""
         
-        # Сохраняем ответ пользователя в соответствующее поле
+        # Получаем текущее поле и проводим валидацию
         current_field = self.form_fields[current_field_idx]
+        is_valid, error_message = self.validate_field(current_field, answer)
+        
+        if not is_valid:
+            # Если валидация не пройдена, возвращаем сообщение об ошибке
+            return f"{error_message}\n\nПожалуйста, укажите: {current_field}"
+        
+        # Сохраняем ответ пользователя в соответствующее поле
         form["data"][current_field] = answer
         
         # Переходим к следующему полю
