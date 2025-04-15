@@ -1,13 +1,11 @@
-from typing import Dict, List, Optional, Tuple
+import re
+import logging
+from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
-# Используем относительный импорт для config, так как он в том же пакете
-from . import config 
-from vkbottle.bot import Message
+from . import config
 from .db_handler import DatabaseHandler
 
-# ========================================================
-# КЛАСС ОБРАБОТЧИКА ФОРМЫ
-# ========================================================
+logger = logging.getLogger(__name__)
 
 class FormHandler:
     """
@@ -24,22 +22,16 @@ class FormHandler:
             form_fields: Список названий полей формы, которые нужно заполнить
         """
         self.form_fields = form_fields
-        # Словарь для хранения текущих форм пользователей:
-        # - ключ: ID пользователя ВКонтакте
-        # - значение: словарь с данными формы (текущее поле, собранные данные, дата начала)
+        
         self.user_forms: Dict[int, Dict] = {}
         
-        # Словарь для хранения идентификаторов заявок пользователей:
-        # - ключ: ID пользователя ВКонтакте
-        # - значение: список идентификаторов заявок этого пользователя
+        
         self.user_tickets: Dict[int, List[str]] = {}
         
-        # Создаем экземпляр обработчика базы данных для сохранения заявок
+        
+        self.user_states: Dict[int, Dict] = {}
+        
         self.db_handler = DatabaseHandler()
-    
-    # ========================================================
-    # МЕТОДЫ УПРАВЛЕНИЯ ФОРМОЙ
-    # ========================================================
     
     def start_form(self, user_id: int) -> str:
         """
@@ -52,13 +44,12 @@ class FormHandler:
         Returns:
             str: Текст первого вопроса формы
         """
-        # Создаем структуру данных для формы пользователя
         self.user_forms[user_id] = {
-            "current_field": 0,  # Индекс текущего заполняемого поля
-            "data": {field: "" for field in self.form_fields},  # Словарь для хранения ответов
-            "started_at": datetime.now().isoformat()  # Дата и время начала заполнения
+            "current_field": 0,
+            "data": {field: "" for field in self.form_fields},
+            "started_at": datetime.now().isoformat()
         }
-        # Возвращаем первый вопрос
+        logger.info(f"Starting form for user {user_id}")
         return self.get_current_question(user_id)
     
     def get_current_question(self, user_id: int) -> str:
@@ -71,19 +62,20 @@ class FormHandler:
         Returns:
             str: Текст вопроса или сообщение о статусе формы
         """
-        # Проверяем, начал ли пользователь заполнение формы
         if user_id not in self.user_forms:
+            logger.warning(f"get_current_question called for user {user_id} without active form.")
             return "Пожалуйста, сначала начните заполнение формы."
         
         form = self.user_forms[user_id]
         current_field_idx = form["current_field"]
         
-        # Проверяем, достигнут ли конец формы
         if current_field_idx >= len(self.form_fields):
-            return """На все вопросы получены ответы. Нажмите "Отправить", чтобы создать заявку."""
+            logger.debug(f"Form complete for user {user_id}, asking to submit.")
+            return config.FORM_ALL_FIELDS_COMPLETE_MESSAGE
         
-        # Возвращаем текущий вопрос
-        return f"Пожалуйста, укажите: {self.form_fields[current_field_idx]}"
+        question = f"Пожалуйста, укажите: {self.form_fields[current_field_idx]}"
+        logger.debug(f"Asking question for user {user_id}: '{question}'")
+        return question
     
     def validate_field(self, field_name: str, value: str) -> Tuple[bool, str]:
         """
@@ -96,35 +88,31 @@ class FormHandler:
         Returns:
             tuple: (bool, str) - результат валидации (успех/неуспех) и сообщение об ошибке (если есть)
         """
-        if not value.strip():
-            return False, "Поле не может быть пустым. Пожалуйста, укажите значение."
+        value = value.strip()
+        if not value:
+            return False, config.ERROR_FIELD_EMPTY
             
-        if "имя" in field_name.lower():
-            if len(value) < 2:
-                return False, "Имя должно содержать минимум 2 символа."
-            
-        elif "почта" in field_name.lower() or "email" in field_name.lower():
-            import re
-            # Проверка формата email
-            if not re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', value):
-                return False, "Неверный формат электронной почты. Пример: example@mail.ru"
-            
-        elif "телефон" in field_name.lower():
-            import re
-            # Удаляем все нецифровые символы для проверки
+        field_lower = field_name.lower()
+        error_msg = ""
+        
+        if "имя" in field_lower and len(value) < 2:
+            error_msg = config.ERROR_NAME_TOO_SHORT
+        elif ("почта" in field_lower or "email" in field_lower) and not re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', value):
+            error_msg = config.ERROR_INVALID_EMAIL
+        elif "телефон" in field_lower:
             cleaned_phone = re.sub(r'\D', '', value)
-            # Проверяем, что после удаления нецифровых символов осталось 10-15 цифр
             if not (10 <= len(cleaned_phone) <= 15):
-                return False, "Неверный формат номера телефона. Укажите номер в формате +7XXXXXXXXXX или 8XXXXXXXXXX"
+                error_msg = config.ERROR_INVALID_PHONE
+        elif ("компани" in field_lower or "организац" in field_lower) and len(value) < 3:
+             error_msg = config.ERROR_COMPANY_NAME_TOO_SHORT
+        elif "описание" in field_lower and len(value) < 10:
+             error_msg = config.ERROR_DESCRIPTION_TOO_SHORT
+             
+        if error_msg:
+            logger.debug(f"Validation failed for field '{field_name}' with value '{value}': {error_msg}")
+            return False, error_msg
             
-        elif "компани" in field_name.lower() or "организац" in field_name.lower():
-            if len(value) < 3:
-                return False, "Название компании должно содержать минимум 3 символа."
-            
-        elif "описание" in field_name.lower():
-            if len(value) < 10:
-                return False, "Описание должно содержать минимум 10 символов."
-                
+        logger.debug(f"Validation succeeded for field '{field_name}' with value '{value}'")
         return True, ""
     
     def process_answer(self, user_id: int, answer: str) -> str:
@@ -138,36 +126,29 @@ class FormHandler:
         Returns:
             str: Текст следующего вопроса или сообщение о завершении формы
         """
-        # Проверяем, начал ли пользователь заполнение формы
         if user_id not in self.user_forms:
+            logger.warning(f"process_answer called for user {user_id} without active form.")
             return "Пожалуйста, сначала начните заполнение формы."
         
         form = self.user_forms[user_id]
         current_field_idx = form["current_field"]
         
-        # Проверяем, не заполнены ли уже все поля
         if current_field_idx >= len(self.form_fields):
-            return """На все вопросы получены ответы. Нажмите "Отправить", чтобы создать заявку."""
+            logger.debug(f"Form already complete for user {user_id} when process_answer was called.")
+            return config.FORM_ALL_FIELDS_COMPLETE_MESSAGE
         
-        # Получаем текущее поле и проводим валидацию
         current_field = self.form_fields[current_field_idx]
         is_valid, error_message = self.validate_field(current_field, answer)
         
         if not is_valid:
-            # Если валидация не пройдена, возвращаем сообщение об ошибке
-            return f"{error_message}\n\nПожалуйста, укажите: {current_field}"
+            return f"{error_message}\n\n{self.get_current_question(user_id)}"
         
-        # Сохраняем ответ пользователя в соответствующее поле
-        form["data"][current_field] = answer
+        form["data"][current_field] = answer.strip()
         
-        # Переходим к следующему полю
         form["current_field"] += 1
+        logger.info(f"Processed answer for field '{current_field}' for user {user_id}. Moving to field {form['current_field']}.")
         
-        # Возвращаем следующий вопрос или сообщение о завершении
-        if form["current_field"] >= len(self.form_fields):
-            return """На все вопросы получены ответы. Нажмите "Отправить", чтобы создать заявку."""
-        else:
-            return self.get_current_question(user_id)
+        return self.get_current_question(user_id)
     
     def cancel_form(self, user_id: int) -> None:
         """
@@ -179,6 +160,9 @@ class FormHandler:
         """
         if user_id in self.user_forms:
             del self.user_forms[user_id]
+            logger.info(f"Form cancelled and cleared for user {user_id}")
+        else:
+            logger.debug(f"cancel_form called for user {user_id} but no active form found.")
     
     def is_form_complete(self, user_id: int) -> bool:
         """
@@ -190,17 +174,11 @@ class FormHandler:
         Returns:
             bool: True, если форма полностью заполнена, иначе False
         """
-        # Проверяем, есть ли форма у пользователя
         if user_id not in self.user_forms:
             return False
         
         form = self.user_forms[user_id]
-        # Если индекс текущего поля >= количеству полей, значит форма заполнена
         return form["current_field"] >= len(self.form_fields)
-    
-    # ========================================================
-    # МЕТОДЫ СОЗДАНИЯ ЗАЯВОК
-    # ========================================================
     
     def create_ticket(self, user_id: int) -> Optional[str]:
         """
@@ -212,24 +190,21 @@ class FormHandler:
         Returns:
             str или None: Идентификатор созданной заявки или None, если не удалось создать заявку
         """
-        # Проверяем, заполнена ли форма полностью
         if not self.is_form_complete(user_id):
+            logger.warning(f"create_ticket called for user {user_id} but form is not complete.")
             return None
         
-        # Получаем собранные данные формы
         form_data = self.user_forms[user_id]["data"]
-        # Формируем уникальный идентификатор заявки: ID пользователя + временная метка
         ticket_id = f"{user_id}_{int(datetime.now().timestamp())}"
         
-        # Сохраняем заявку в базу данных через обработчик БД
         success = self.db_handler.create_ticket(ticket_id, user_id, form_data)
         
         if success:
-            # Если заявка успешно создана, очищаем данные формы
+            logger.info(f"Ticket {ticket_id} successfully created in DB for user {user_id}. Clearing form data.")
             del self.user_forms[user_id]
             return ticket_id
         else:
-            # Если произошла ошибка при сохранении, возвращаем None
+            logger.error(f"Failed to create ticket {ticket_id} in DB for user {user_id}.")
             return None
     
     def delete_ticket(self, user_id: int, ticket_id: str) -> bool:
@@ -243,21 +218,48 @@ class FormHandler:
         Returns:
             bool: True если заявка успешно удалена, False в случае ошибки
         """
-        print(f"FormHandler.delete_ticket: user_id={user_id} (тип: {type(user_id)}), ticket_id={ticket_id} (тип: {type(ticket_id)})")
+        logger.info(f"Attempting to delete ticket {ticket_id} for user {user_id}")
         
-        # Убеждаемся в правильных типах данных
         user_id_int = int(user_id)
         ticket_id_str = str(ticket_id)
         
-        # Проверяем, существует ли заявка и удаляем ее
         success = self.db_handler.delete_ticket(ticket_id_str, user_id_int)
-        print(f"FormHandler.delete_ticket: Результат удаления: {success}")
+        logger.info(f"DB deletion result for ticket {ticket_id}: {success}")
         
-        # Если заявка успешно удалена и у нас хранится список заявок пользователя в памяти
         if success and user_id_int in self.user_tickets:
-            # Удаляем заявку из списка заявок пользователя в памяти
             if ticket_id_str in self.user_tickets[user_id_int]:
-                self.user_tickets[user_id_int].remove(ticket_id_str)
-                print(f"FormHandler.delete_ticket: Заявка удалена из кэша пользователя")
+                try:
+                    self.user_tickets[user_id_int].remove(ticket_id_str)
+                    logger.debug(f"Removed ticket {ticket_id} from user_tickets cache for user {user_id}")
+                except ValueError:
+                    logger.warning(f"Ticket {ticket_id} was already removed from user_tickets cache for user {user_id}")
+            if not self.user_tickets[user_id_int]:
+                del self.user_tickets[user_id_int]
+                logger.debug(f"Cleared empty user_tickets cache for user {user_id}")
         
         return success
+
+    def set_user_state(self, user_id: int, key: str, value: Any):
+        """Устанавливает состояние для пользователя."""
+        if user_id not in self.user_states:
+            self.user_states[user_id] = {}
+        self.user_states[user_id][key] = value
+        logger.debug(f"Set state for user {user_id}: {key}={value}")
+
+    def get_user_state(self, user_id: int, key: str, default: Any = None) -> Any:
+        """Получает состояние пользователя."""
+        return self.user_states.get(user_id, {}).get(key, default)
+
+    def clear_user_state(self, user_id: int, key: Optional[str] = None):
+        """Очищает конкретное состояние или все состояния пользователя."""
+        if user_id in self.user_states:
+            if key:
+                if key in self.user_states[user_id]:
+                    del self.user_states[user_id][key]
+                    logger.debug(f"Cleared state '{key}' for user {user_id}")
+                if not self.user_states[user_id]:
+                    del self.user_states[user_id]
+                    logger.debug(f"Cleared all states for user {user_id}")
+            else:
+                del self.user_states[user_id]
+                logger.debug(f"Cleared all states for user {user_id}")
