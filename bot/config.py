@@ -28,17 +28,31 @@ else:
 # Хранится в .env файле в формате: VK_TOKEN=your_token_here
 VK_TOKEN = os.getenv("VK_TOKEN")
 
-# ID администраторов/менеджеров для отправки уведомлений о новых заявках
-# Указываются через запятую в .env файле: ADMIN_IDS=12345,67890
+# --- Настройки уведомлений --- #
+
+# ID беседы ВКонтакте для отправки уведомлений о заявках
+# ID бесед обычно начинаются с 2000000000
+# Указывается в .env файле: NOTIFICATION_CHAT_ID=2000000001
+NOTIFICATION_CHAT_ID_RAW = os.getenv("NOTIFICATION_CHAT_ID", "")
+NOTIFICATION_CHAT_ID = None
+if NOTIFICATION_CHAT_ID_RAW:
+    try:
+        NOTIFICATION_CHAT_ID = int(NOTIFICATION_CHAT_ID_RAW)
+        if NOTIFICATION_CHAT_ID < 2000000000:
+             print(f"Warning: NOTIFICATION_CHAT_ID ({NOTIFICATION_CHAT_ID}) looks like a user ID, not a chat ID. Chat IDs usually start from 2000000000.")
+    except ValueError:
+        print(f"Warning: NOTIFICATION_CHAT_ID in .env is not a valid integer: '{NOTIFICATION_CHAT_ID_RAW}'. Notifications will be disabled.")
+
+# ID администраторов/менеджеров (опционально, можно использовать для других целей)
 ADMIN_IDS_RAW = os.getenv("ADMIN_IDS", "")
 ADMIN_IDS = []
 if ADMIN_IDS_RAW:
     try:
         ADMIN_IDS = [int(admin_id.strip()) for admin_id in ADMIN_IDS_RAW.split(',') if admin_id.strip()]
     except ValueError:
-        print(f"Warning: ADMIN_IDS in .env contains non-integer values: '{ADMIN_IDS_RAW}'. Notifications might not work.")
+        print(f"Warning: ADMIN_IDS in .env contains non-integer values: '{ADMIN_IDS_RAW}'.")
 
-# Шаблон сообщения для уведомления администраторов о новой заявке
+# Шаблон сообщения для уведомления о новой заявке
 # Можно использовать плейсхолдеры: {ticket_id}, {user_id}, {user_link}, {field_name} (для полей формы)
 NEW_TICKET_NOTIFICATION_TEMPLATE = os.getenv(
     "NEW_TICKET_NOTIFICATION_TEMPLATE",
@@ -56,11 +70,9 @@ TICKET_DELETED_NOTIFICATION_TEMPLATE = os.getenv(
 if not VK_TOKEN:
     raise ValueError("VK_TOKEN not found in .env file. Please configure your environment variables.")
 
-# Проверка наличия админов, если шаблон используется
-if not ADMIN_IDS and "ADMIN_IDS" in os.environ: # Проверяем, была ли переменная вообще в .env
-     print("Warning: ADMIN_IDS is configured in .env but is empty or invalid. Admin notifications will be disabled.")
-elif not ADMIN_IDS:
-    print("Info: ADMIN_IDS is not configured in .env. Admin notifications will be disabled.")
+# Проверка наличия ID чата для уведомлений
+if not NOTIFICATION_CHAT_ID:
+    print("Warning: NOTIFICATION_CHAT_ID is not configured or invalid in .env. Admin notifications will be disabled.")
 
 # ========================================================
 # НАСТРОЙКА ФОРМЫ ЗАЯВКИ

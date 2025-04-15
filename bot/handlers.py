@@ -1,12 +1,12 @@
 from vkbottle.bot import Bot, Message
 from vkbottle import Keyboard, KeyboardButtonColor, Text
 # Используем относительный импорт для config, так как он в том же пакете
-from . import config 
+from . import config
 # Используем относительные импорты для модулей в том же пакете
 from .form_handler import FormHandler 
 from .db_handler import DatabaseHandler
 from datetime import datetime
-from typing import Dict
+from typing import Dict, Callable, Awaitable, Any
 
 # Импорт из новых модулей
 from . import keyboards
@@ -396,6 +396,44 @@ class BotHandlers:
                 keyboard=keyboards.get_start_keyboard()
             )
 
+    async def test_chat_notification_handler(self, message: Message):
+        """
+        Обработчик команды для тестирования отправки сообщения в чат уведомлений
+        ИЛИ для получения ID текущего чата.
+        """
+        # Отвечаем ID текущего чата, чтобы пользователь мог его скопировать
+        chat_id = message.peer_id
+        await message.answer(f"Этот чат имеет ID: {chat_id}\n\nСкопируйте этот ID и вставьте в переменную NOTIFICATION_CHAT_ID в вашем .env файле.")
+        print(f"dev/test_chat executed in chat {chat_id}. Displayed chat ID to user.")
+        
+        # Старый код для отправки тестового сообщения закомментирован,
+        # так как основная цель теперь - показать ID чата.
+        # if not config.NOTIFICATION_CHAT_ID:
+        #     await message.answer(
+        #         "Ошибка: ID чата для уведомлений (NOTIFICATION_CHAT_ID) не настроен в .env.",
+        #         keyboard=keyboards.get_start_keyboard()
+        #     )
+        #     return
+        # try:
+        #     test_message = "Hello World! Тестовое сообщение от бота."
+        #     await self.bot.api.messages.send(
+        #         peer_id=config.NOTIFICATION_CHAT_ID,
+        #         message=test_message,
+        #         random_id=0
+        #     )
+        #     print(f"Test message sent to chat {config.NOTIFICATION_CHAT_ID}")
+        #     await message.answer(
+        #         f"Тестовое сообщение отправлено в чат ID: {config.NOTIFICATION_CHAT_ID}. Проверьте чат.",
+        #         keyboard=keyboards.get_start_keyboard()
+        #     )
+        # except Exception as e:
+        #     error_message = f"Ошибка при отправке тестового сообщения в чат {config.NOTIFICATION_CHAT_ID}: {e}"
+        #     print(error_message)
+        #     await message.answer(
+        #         f"{error_message}\nУбедитесь, что ID чата указан верно и бот добавлен в этот чат.",
+        #         keyboard=keyboards.get_start_keyboard()
+        #     )
+
     async def message_handler(self, message: Message):
         """
         Обработчик всех остальных сообщений
@@ -455,27 +493,50 @@ class BotHandlers:
             keyboard=keyboards.get_start_keyboard()
         )
 
+    # ========================================================
+    # ОБЕРТКА ДЛЯ ИГНОРИРОВАНИЯ ЧАТА УВЕДОМЛЕНИЙ
+    # ========================================================
+    def ignore_notification_chat_wrapper(self, handler: Callable[[Message], Awaitable[Any]]) -> Callable[[Message], Awaitable[Any]]:
+        """
+        Функция-обертка, которая проверяет, пришло ли сообщение из чата уведомлений.
+        Если да, то обработчик не вызывается.
+        """
+        async def wrapped_handler(message: Message):
+            if message.peer_id == config.NOTIFICATION_CHAT_ID:
+                print(f"Ignoring message from notification chat {message.peer_id}")
+                return # Просто ничего не делаем
+            # Если не из чата уведомлений, вызываем оригинальный обработчик
+            await handler(message)
+        return wrapped_handler
+
     def register_handlers(self):
-        self.bot.on.message(text=["Начать", "start", "/start"])(self.start_handler)
-        self.bot.on.message(text=["Заполнить заявку"])(self.form_start_handler)
-        self.bot.on.message(text=["Отмена"])(self.cancel_handler)
-        self.bot.on.message(text=["Отправить"])(self.submit_handler)
-        self.bot.on.message(text=["Мои заявки"])(self.tickets_handler)
-        self.bot.on.message(text=[r"^\d+_\d+$", r"^\d+$"])(self.ticket_info_handler)
-        self.bot.on.message(text=["Удалить заявку"])(self.delete_ticket_handler)
-        self.bot.on.message(text=["Подтвердить удаление"])(self.confirm_delete_handler)
-        self.bot.on.message(text=["dev/create_random_ticket", "dev/test_ticket"])(self.dev_create_random_ticket)
-        self.bot.on.message()(self.message_handler) # Default handler for other messages 
+        # Оборачиваем все хендлеры, КРОМЕ тестового, в проверку чата
+        self.bot.on.message(text=["Начать", "start", "/start"])(self.ignore_notification_chat_wrapper(self.start_handler))
+        self.bot.on.message(text=["Заполнить заявку"])(self.ignore_notification_chat_wrapper(self.form_start_handler))
+        self.bot.on.message(text=["Отмена"])(self.ignore_notification_chat_wrapper(self.cancel_handler))
+        self.bot.on.message(text=["Отправить"])(self.ignore_notification_chat_wrapper(self.submit_handler))
+        self.bot.on.message(text=["Мои заявки"])(self.ignore_notification_chat_wrapper(self.tickets_handler))
+        # Обратите внимание: обработчик для ID/индексов тоже оборачиваем
+        self.bot.on.message(text=[r"^\d+_\d+$", r"^\d+$"])(self.ignore_notification_chat_wrapper(self.ticket_info_handler))
+        self.bot.on.message(text=["Удалить заявку"])(self.ignore_notification_chat_wrapper(self.delete_ticket_handler))
+        self.bot.on.message(text=["Подтвердить удаление"])(self.ignore_notification_chat_wrapper(self.confirm_delete_handler))
+        self.bot.on.message(text=["dev/create_random_ticket", "dev/test_ticket"])(self.ignore_notification_chat_wrapper(self.dev_create_random_ticket))
+        
+        # Тестовую команду НЕ оборачиваем, чтобы она работала везде
+        self.bot.on.message(text=["dev/test_chat"])(self.test_chat_notification_handler)
+        
+        # Основной обработчик сообщений ТОЖЕ оборачиваем
+        self.bot.on.message()(self.ignore_notification_chat_wrapper(self.message_handler))
 
     # ========================================================
     # УВЕДОМЛЕНИЕ АДМИНИСТРАТОРОВ
     # ========================================================
     async def notify_admins_about_new_ticket(self, ticket_id: str, user_id: int, form_data: Dict):
         """
-        Отправляет уведомление о новой заявке администраторам, указанным в config.ADMIN_IDS.
+        Отправляет уведомление о новой заявке в указанный в конфиге чат.
         """
-        if not config.ADMIN_IDS:
-            print("notify_admins_about_new_ticket: Admin IDs not configured, skipping notification.")
+        if not config.NOTIFICATION_CHAT_ID:
+            print("notify_admins_about_new_ticket: NOTIFICATION_CHAT_ID not configured, skipping notification.")
             return
 
         try:
@@ -484,59 +545,51 @@ class BotHandlers:
             for field, value in form_data.items():
                 form_summary += f"> {field}: {value}\n"
             form_summary = form_summary.strip()
-
-            # Создаем ссылку на пользователя
             user_link = f"vk.com/id{user_id}"
 
-            # Форматируем сообщение по шаблону из конфига
             message_text = config.NEW_TICKET_NOTIFICATION_TEMPLATE.format(
                 ticket_id=ticket_id,
                 user_id=user_id,
                 user_link=user_link,
                 form_summary=form_summary
             )
-            # Дополнительно можно добавить форматирование для конкретных полей, если нужно
-            # message_text = message_text.format(**form_data)
 
-            # Отправляем сообщение каждому админу
-            for admin_id in config.ADMIN_IDS:
-                await self.bot.api.messages.send(
-                    peer_id=admin_id,
-                    message=message_text,
-                    random_id=0 # random_id нужен для предотвращения дублирования сообщений
-                )
-                print(f"notify_admins_about_new_ticket: Notification sent to admin {admin_id} for ticket {ticket_id}")
+            # Отправляем одно сообщение в заданный чат
+            await self.bot.api.messages.send(
+                peer_id=config.NOTIFICATION_CHAT_ID,
+                message=message_text,
+                random_id=0
+            )
+            print(f"notify_admins_about_new_ticket: Notification sent to chat {config.NOTIFICATION_CHAT_ID} for ticket {ticket_id}")
 
         except Exception as e:
-            print(f"Error sending notification to admins for ticket {ticket_id}: {e}") 
+            print(f"Error sending new ticket notification to chat {config.NOTIFICATION_CHAT_ID} for ticket {ticket_id}: {e}")
 
     async def notify_admins_about_deleted_ticket(self, ticket_id: str, user_id: int):
         """
-        Отправляет уведомление об удалении заявки администраторам.
+        Отправляет уведомление об удалении заявки в указанный в конфиге чат.
         """
-        if not config.ADMIN_IDS:
-            print("notify_admins_about_deleted_ticket: Admin IDs not configured, skipping notification.")
+        if not config.NOTIFICATION_CHAT_ID:
+            print("notify_admins_about_deleted_ticket: NOTIFICATION_CHAT_ID not configured, skipping notification.")
             return
 
         try:
             # Создаем ссылку на пользователя
             user_link = f"vk.com/id{user_id}"
 
-            # Форматируем сообщение по шаблону из конфига
             message_text = config.TICKET_DELETED_NOTIFICATION_TEMPLATE.format(
                 ticket_id=ticket_id,
                 user_id=user_id,
                 user_link=user_link
             )
 
-            # Отправляем сообщение каждому админу
-            for admin_id in config.ADMIN_IDS:
-                await self.bot.api.messages.send(
-                    peer_id=admin_id,
-                    message=message_text,
-                    random_id=0
-                )
-                print(f"notify_admins_about_deleted_ticket: Deletion notification sent to admin {admin_id} for ticket {ticket_id}")
+            # Отправляем одно сообщение в заданный чат
+            await self.bot.api.messages.send(
+                peer_id=config.NOTIFICATION_CHAT_ID,
+                message=message_text,
+                random_id=0
+            )
+            print(f"notify_admins_about_deleted_ticket: Deletion notification sent to chat {config.NOTIFICATION_CHAT_ID} for ticket {ticket_id}")
 
         except Exception as e:
-            print(f"Error sending deletion notification to admins for ticket {ticket_id}: {e}") 
+            print(f"Error sending deletion notification to chat {config.NOTIFICATION_CHAT_ID} for ticket {ticket_id}: {e}") 
