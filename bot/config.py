@@ -6,12 +6,21 @@ import os
 from dotenv import load_dotenv
 
 # Пытаемся загрузить файл .env из текущей директории или родительской директории
-if os.path.exists('.env'):
-    load_dotenv()
-elif os.path.exists(os.path.join('..', '.env')):
-    load_dotenv(os.path.join('..', '.env'))
+# ВАЖНО: При запуске через 'python -m bot.bot' из родительской папки,
+# __file__ будет указывать на bot/config.py, поэтому нужно искать .env
+# относительно этой директории или в родительской.
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+env_path_in_parent = os.path.join(parent_dir, '.env')
+
+if os.path.exists(env_path_in_parent):
+    load_dotenv(env_path_in_parent)
+    print(f"Loaded .env from: {env_path_in_parent}")
+elif os.path.exists(os.path.join(current_dir, '.env')): # Менее вероятно при запуске через -m
+    load_dotenv(os.path.join(current_dir, '.env'))
+    print(f"Loaded .env from: {current_dir}")
 else:
-    print("Warning: .env file not found. Create one from .env.example")
+    print(f"Warning: .env file not found. Looked in {parent_dir} and {current_dir}. Create one from .env.example")
 
 # Токен VK API для доступа к API ВКонтакте
 # Используется для авторизации бота и отправки/получения сообщений
@@ -53,4 +62,4 @@ FORM_START_MESSAGE = "Отлично! Давайте начнем заполне
 FORM_COMPLETE_MESSAGE = "Спасибо! Ваша заявка создана. Мы свяжемся с вами в ближайшее время."
 
 # Сообщение при отмене заполнения формы
-CANCEL_MESSAGE = """Заполнение формы отменено. Нажмите "Заполнить заявку" в любое время, чтобы начать снова."""
+CANCEL_MESSAGE = """Заполнение формы отменено. Нажмите "Заполнить заявку" в любое время, чтобы начать снова.""" 

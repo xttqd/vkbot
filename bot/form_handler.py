@@ -1,6 +1,9 @@
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
-from db_handler import DatabaseHandler
+# Используем относительный импорт для config, так как он в том же пакете
+from . import config 
+from vkbottle.bot import Message
+from .db_handler import DatabaseHandler
 
 # ========================================================
 # КЛАСС ОБРАБОТЧИКА ФОРМЫ
