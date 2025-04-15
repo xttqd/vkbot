@@ -6,6 +6,7 @@ from . import config
 from .form_handler import FormHandler 
 from .db_handler import DatabaseHandler
 from datetime import datetime
+from typing import Dict
 
 # Импорт из новых модулей
 from . import keyboards
@@ -91,11 +92,24 @@ class BotHandlers:
 
         # Проверяем, полностью ли заполнена форма
         if self.form_handler.is_form_complete(user_id):
+            # Получаем данные формы ПЕРЕД тем как create_ticket их удалит
+            form_data = self.form_handler.user_forms[user_id]["data"]
+            
             # Создаем заявку и получаем её идентификатор
             ticket_id = self.form_handler.create_ticket(user_id)
             if ticket_id:
+                # Отправляем уведомление администраторам
+                await self.notify_admins_about_new_ticket(ticket_id, user_id, form_data)
+                
+                # Отправляем подтверждение пользователю
                 await message.answer(
                     f"{config.FORM_COMPLETE_MESSAGE}\nИдентификатор вашей заявки: {ticket_id}",
+                    keyboard=keyboards.get_start_keyboard()
+                )
+            else:
+                # Сообщаем об ошибке, если не удалось создать заявку
+                await message.answer(
+                    "Произошла ошибка при создании заявки. Пожалуйста, попробуйте снова или свяжитесь с администратором.",
                     keyboard=keyboards.get_start_keyboard()
                 )
         else:
@@ -343,6 +357,8 @@ class BotHandlers:
                 f"Заявка {ticket_id} успешно удалена.",
                 keyboard=keyboards.get_start_keyboard()
             )
+            # Отправляем уведомление администраторам ПОСЛЕ успешного удаления
+            await self.notify_admins_about_deleted_ticket(ticket_id, user_id)
         else:
             await message.answer(
                 "Не удалось удалить заявку. Возможно, она была уже удалена или у вас нет прав на её удаление.",
@@ -450,3 +466,77 @@ class BotHandlers:
         self.bot.on.message(text=["Подтвердить удаление"])(self.confirm_delete_handler)
         self.bot.on.message(text=["dev/create_random_ticket", "dev/test_ticket"])(self.dev_create_random_ticket)
         self.bot.on.message()(self.message_handler) # Default handler for other messages 
+
+    # ========================================================
+    # УВЕДОМЛЕНИЕ АДМИНИСТРАТОРОВ
+    # ========================================================
+    async def notify_admins_about_new_ticket(self, ticket_id: str, user_id: int, form_data: Dict):
+        """
+        Отправляет уведомление о новой заявке администраторам, указанным в config.ADMIN_IDS.
+        """
+        if not config.ADMIN_IDS:
+            print("notify_admins_about_new_ticket: Admin IDs not configured, skipping notification.")
+            return
+
+        try:
+            # Формируем краткое содержание заявки
+            form_summary = ""
+            for field, value in form_data.items():
+                form_summary += f"> {field}: {value}\n"
+            form_summary = form_summary.strip()
+
+            # Создаем ссылку на пользователя
+            user_link = f"vk.com/id{user_id}"
+
+            # Форматируем сообщение по шаблону из конфига
+            message_text = config.NEW_TICKET_NOTIFICATION_TEMPLATE.format(
+                ticket_id=ticket_id,
+                user_id=user_id,
+                user_link=user_link,
+                form_summary=form_summary
+            )
+            # Дополнительно можно добавить форматирование для конкретных полей, если нужно
+            # message_text = message_text.format(**form_data)
+
+            # Отправляем сообщение каждому админу
+            for admin_id in config.ADMIN_IDS:
+                await self.bot.api.messages.send(
+                    peer_id=admin_id,
+                    message=message_text,
+                    random_id=0 # random_id нужен для предотвращения дублирования сообщений
+                )
+                print(f"notify_admins_about_new_ticket: Notification sent to admin {admin_id} for ticket {ticket_id}")
+
+        except Exception as e:
+            print(f"Error sending notification to admins for ticket {ticket_id}: {e}") 
+
+    async def notify_admins_about_deleted_ticket(self, ticket_id: str, user_id: int):
+        """
+        Отправляет уведомление об удалении заявки администраторам.
+        """
+        if not config.ADMIN_IDS:
+            print("notify_admins_about_deleted_ticket: Admin IDs not configured, skipping notification.")
+            return
+
+        try:
+            # Создаем ссылку на пользователя
+            user_link = f"vk.com/id{user_id}"
+
+            # Форматируем сообщение по шаблону из конфига
+            message_text = config.TICKET_DELETED_NOTIFICATION_TEMPLATE.format(
+                ticket_id=ticket_id,
+                user_id=user_id,
+                user_link=user_link
+            )
+
+            # Отправляем сообщение каждому админу
+            for admin_id in config.ADMIN_IDS:
+                await self.bot.api.messages.send(
+                    peer_id=admin_id,
+                    message=message_text,
+                    random_id=0
+                )
+                print(f"notify_admins_about_deleted_ticket: Deletion notification sent to admin {admin_id} for ticket {ticket_id}")
+
+        except Exception as e:
+            print(f"Error sending deletion notification to admins for ticket {ticket_id}: {e}") 

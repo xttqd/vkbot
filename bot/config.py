@@ -28,9 +28,39 @@ else:
 # Хранится в .env файле в формате: VK_TOKEN=your_token_here
 VK_TOKEN = os.getenv("VK_TOKEN")
 
+# ID администраторов/менеджеров для отправки уведомлений о новых заявках
+# Указываются через запятую в .env файле: ADMIN_IDS=12345,67890
+ADMIN_IDS_RAW = os.getenv("ADMIN_IDS", "")
+ADMIN_IDS = []
+if ADMIN_IDS_RAW:
+    try:
+        ADMIN_IDS = [int(admin_id.strip()) for admin_id in ADMIN_IDS_RAW.split(',') if admin_id.strip()]
+    except ValueError:
+        print(f"Warning: ADMIN_IDS in .env contains non-integer values: '{ADMIN_IDS_RAW}'. Notifications might not work.")
+
+# Шаблон сообщения для уведомления администраторов о новой заявке
+# Можно использовать плейсхолдеры: {ticket_id}, {user_id}, {user_link}, {field_name} (для полей формы)
+NEW_TICKET_NOTIFICATION_TEMPLATE = os.getenv(
+    "NEW_TICKET_NOTIFICATION_TEMPLATE",
+    "🔔 Новая заявка! 🔔\n\nID заявки: {ticket_id}\nОт пользователя: {user_link}\n\n{form_summary}"
+)
+
+# Шаблон сообщения для уведомления администраторов об удалении заявки
+# Плейсхолдеры: {ticket_id}, {user_id}, {user_link}
+TICKET_DELETED_NOTIFICATION_TEMPLATE = os.getenv(
+    "TICKET_DELETED_NOTIFICATION_TEMPLATE",
+    "🗑️ Заявка удалена пользователем 🗑️\n\nID заявки: {ticket_id}\nПользователь: {user_link}"
+)
+
 # Проверка наличия токена
 if not VK_TOKEN:
     raise ValueError("VK_TOKEN not found in .env file. Please configure your environment variables.")
+
+# Проверка наличия админов, если шаблон используется
+if not ADMIN_IDS and "ADMIN_IDS" in os.environ: # Проверяем, была ли переменная вообще в .env
+     print("Warning: ADMIN_IDS is configured in .env but is empty or invalid. Admin notifications will be disabled.")
+elif not ADMIN_IDS:
+    print("Info: ADMIN_IDS is not configured in .env. Admin notifications will be disabled.")
 
 # ========================================================
 # НАСТРОЙКА ФОРМЫ ЗАЯВКИ
