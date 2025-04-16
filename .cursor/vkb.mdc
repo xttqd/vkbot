@@ -1,0 +1,45 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+## Clean, Minimalistic, SOLID VK Bot Development Rules
+
+**Goal:** Generate clean, minimalistic, and maintainable Python code for a VK bot, adhering strictly to SOLID principles.
+
+**Core Principles:**
+
+1.  **Clean Code:**
+    *   **Readability:** Prioritize clear variable and function names. Keep functions short and focused. Use consistent formatting (PEP 8).
+    *   **Simplicity:** Avoid unnecessary complexity. Choose the simplest solution that works.
+    *   **Comments:** Add comments only to explain *why* something is done, not *what* it does, especially for non-obvious logic. Avoid redundant comments.
+    *   **DRY (Don't Repeat Yourself):** Abstract repetitive code into functions or classes.
+
+2.  **Minimalism:**
+    *   **Lean Dependencies:** Only include necessary libraries. Avoid large frameworks if a smaller library suffices.
+    *   **Essential Features:** Implement only the requested functionality. Do not add speculative features.
+    *   **Conciseness:** Write succinct code without sacrificing readability.
+
+3.  **SOLID Principles:**
+    *   **Single Responsibility Principle (SRP):** Each class or module should have only one reason to change. Separate concerns like API interaction, data processing, command handling, etc.
+    *   **Open/Closed Principle (OCP):** Software entities (classes, modules, functions) should be open for extension but closed for modification. Use abstractions (like abstract base classes or protocols) and dependency injection to allow adding new features without changing existing code. For example, design command handlers so new commands can be added without modifying the core bot logic.
+    *   **Liskov Substitution Principle (LSP):** Subtypes must be substitutable for their base types without altering the correctness of the program. Ensure derived classes correctly implement the interfaces of their base classes.
+    *   **Interface Segregation Principle (ISP):** Clients should not be forced to depend on interfaces they do not use. Create small, specific interfaces rather than large, monolithic ones. For a VK bot, this might mean separate interfaces for different event types (message handling, button clicks, etc.).
+    *   **Dependency Inversion Principle (DIP):** High-level modules should not depend on low-level modules. Both should depend on abstractions. Abstractions should not depend on details. Details should depend on abstractions. Use dependency injection to decouple components (e.g., inject the VK API client, database connection, or configuration objects).
+
+**VK Bot Specifics:**
+
+*   **API Interaction:** Encapsulate VK API calls within dedicated service classes or modules.
+*   **Event Handling:** Design a clear and extensible event handling mechanism (e.g., using decorators, command patterns, or event buses).
+*   **Configuration:** Load configuration (tokens, settings) from environment variables or configuration files, not hardcoded values.
+*   **State Management:** If state is needed, manage it explicitly and carefully, potentially using a database or a dedicated state management class.
+*   **Error Handling:** Implement robust error handling and logging for API errors, network issues, and unexpected user input.
+
+**Instructions for AI:**
+
+*   When asked to write code, strictly follow the principles outlined above.
+*   Break down complex tasks into smaller, single-responsibility functions or classes.
+*   Use type hints for better clarity and maintainability.
+*   Favor composition over inheritance where appropriate.
+*   Ask for clarification if requirements conflict with these principles.
+*   Structure the project logically (e.g., separate directories for handlers, services, models). 
