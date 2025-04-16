@@ -2,10 +2,11 @@ from datetime import datetime, UTC
 from typing import Dict, Optional, List, Any
 import os
 import logging
-from sqlalchemy import Integer, String, DateTime, select
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker, declarative_base, mapped_column
+from sqlalchemy import Integer, String, DateTime, select, delete
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, AsyncEngine
+from sqlalchemy.orm import sessionmaker, declarative_base, mapped_column, Mapped
 from sqlalchemy.dialects.sqlite import JSON
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
 logger = logging.getLogger(__name__)
 
@@ -15,15 +16,14 @@ Base = declarative_base()
 class Ticket(Base):
     __tablename__ = "tickets"
 
-    ticket_id = mapped_column(String, primary_key=True)
-    user_id = mapped_column(Integer, nullable=False, index=True)
-    created_at = mapped_column(
+    ticket_id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=lambda: datetime.now(UTC)
     )
-    form_data = mapped_column(JSON, nullable=False)
+    form_data: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False)
 
     def to_dict(self) -> Dict[str, Any]:
-        """Конвертирует объект Ticket в словарь."""
         return {
             "ticket_id": self.ticket_id,
             "user_id": self.user_id,
@@ -33,19 +33,12 @@ class Ticket(Base):
 
 
 class DatabaseHandler:
-    """
-    Асинхронный класс для работы с базой данных SQLite
-    с использованием SQLAlchemy.
-    Обеспечивает создание, чтение, обновление и удаление заявок.
-    """
+    db_path: str
+    db_url: str
+    engine: AsyncEngine
+    async_session_maker: sessionmaker[AsyncSession]
 
     def __init__(self, db_name: str = "tickets.db"):
-        """
-        Инициализация обработчика базы данных.
-
-        Args:
-            db_name: Имя файла базы данных SQLite
-        """
         base_dir = os.path.dirname(os.path.abspath(__file__))
         self.db_path = os.path.join(base_dir, db_name)
         self.db_url = f"sqlite+aiosqlite:///{self.db_path}"
@@ -57,67 +50,58 @@ class DatabaseHandler:
         )
 
     async def init_db(self) -> None:
-        """
-        Асинхронная инициализация базы данных и создание таблиц,
-        если они не существуют.
-        """
         async with self.engine.begin() as conn:
             try:
                 await conn.run_sync(Base.metadata.create_all)
                 logger.info("Database initialized successfully.")
+            except SQLAlchemyError as e:
+                logger.error(f"Database initialization failed: {e}")
+                raise
             except Exception as e:
-                logger.error(f"Error initializing database: {e}")
+                logger.critical(f"Unexpected error during database initialization: {e}")
                 raise
 
     async def create_ticket(
         self, ticket_id: str, user_id: int, form_data: Dict[str, Any]
     ) -> bool:
-        """
-        Асинхронное создание новой заявки в базе данных.
-
-        Args:
-            ticket_id: Уникальный идентификатор заявки
-            user_id: ID пользователя ВКонтакте
-            form_data: Словарь с данными формы
-
-        Returns:
-            bool: True, если заявка успешно создана, иначе False
-        """
+        session: AsyncSession
         async with self.async_session_maker() as session:
             async with session.begin():
                 try:
                     new_ticket = Ticket(
-                        ticket_id=str(ticket_id),
-                        user_id=int(user_id),
+                        ticket_id=ticket_id,
+                        user_id=user_id,
                         form_data=form_data,
                     )
                     session.add(new_ticket)
-                    await session.commit()
                     logger.info(f"Ticket {ticket_id} created for user {user_id}.")
                     return True
+                except IntegrityError as e:
+                    await session.rollback()
+                    logger.warning(
+                        f"Integrity error creating ticket {ticket_id} for user {user_id} (likely duplicate ID): {e}"
+                    )
+                    return False
+                except SQLAlchemyError as e:
+                    await session.rollback()
+                    logger.error(
+                        f"Database error creating ticket {ticket_id} for user {user_id}: {e}"
+                    )
+                    return False
                 except Exception as e:
                     await session.rollback()
                     logger.error(
-                        f"Error creating ticket {ticket_id} for user {user_id}: {e}"
+                        f"Unexpected error creating ticket {ticket_id} for user {user_id}: {e}"
                     )
                     return False
 
     async def get_ticket(self, ticket_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Асинхронное получение заявки по её ID.
-
-        Args:
-            ticket_id: Идентификатор заявки
-
-        Returns:
-            Dict или None: Словарь с данными заявки или None,
-            если заявка не найдена
-        """
+        session: AsyncSession
         async with self.async_session_maker() as session:
             try:
-                stmt = select(Ticket).where(Ticket.ticket_id == str(ticket_id))
+                stmt = select(Ticket).where(Ticket.ticket_id == ticket_id)
                 result = await session.execute(stmt)
-                ticket = result.scalar_one_or_none()
+                ticket: Optional[Ticket] = result.scalar_one_or_none()
 
                 if ticket:
                     logger.debug(f"Ticket found: {ticket_id}.")
@@ -125,115 +109,92 @@ class DatabaseHandler:
                 else:
                     logger.debug(f"Ticket not found: {ticket_id}.")
                     return None
+            except SQLAlchemyError as e:
+                logger.error(f"Database error getting ticket {ticket_id}: {e}")
+                return None
             except Exception as e:
-                # Break long log message
-                logger.error(f"Error getting ticket {ticket_id}: {e}")
+                logger.error(f"Unexpected error getting ticket {ticket_id}: {e}")
                 return None
 
     async def get_all_tickets(
         self, user_id: Optional[int] = None
     ) -> List[Dict[str, Any]]:
-        """
-        Асинхронное получение всех заявок
-        или заявок конкретного пользователя.
-
-        Args:
-            user_id: ID пользователя ВКонтакте
-                     (если None, возвращаются все заявки)
-
-        Returns:
-            List[Dict]: Список словарей с данными заявок
-        """
+        session: AsyncSession
         async with self.async_session_maker() as session:
+            user_info = f" for user {user_id}" if user_id else ""
             try:
                 stmt = select(Ticket).order_by(Ticket.created_at.desc())
                 if user_id is not None:
-                    stmt = stmt.where(Ticket.user_id == int(user_id))
+                    stmt = stmt.where(Ticket.user_id == user_id)
 
                 result = await session.execute(stmt)
-                tickets = [t.to_dict() for t in result.scalars().all()]
-                user_info = f" for user {user_id}" if user_id else ""
+                tickets: List[Ticket] = list(result.scalars().all())
                 logger.debug(f"Retrieved {len(tickets)} tickets{user_info}.")
-                return tickets
+                return [t.to_dict() for t in tickets]
+            except SQLAlchemyError as e:
+                log_msg = f"Database error getting all tickets{user_info}"
+                logger.error(f"{log_msg}: {e}")
+                return []
             except Exception as e:
-                user_info = f" for user {user_id}" if user_id else ""
-                log_msg = f"Error getting all tickets{user_info}"
+                log_msg = f"Unexpected error getting all tickets{user_info}"
                 logger.error(f"{log_msg}: {e}")
                 return []
 
-    async def update_ticket(self, ticket_id: str, form_data: Dict[str, Any]) -> bool:
-        """
-        Асинхронное обновление данных заявки.
-
-        Args:
-            ticket_id: Идентификатор заявки
-            form_data: Новые данные формы
-
-        Returns:
-            bool: True, если заявка успешно обновлена, иначе False
-        """
-        async with self.async_session_maker() as session:
-            async with session.begin():
-                try:
-                    stmt = select(Ticket).where(Ticket.ticket_id == str(ticket_id))
-                    result = await session.execute(stmt)
-                    ticket_to_update = result.scalar_one_or_none()
-
-                    if not ticket_to_update:
-                        logger.warning(
-                            f"Attempted to update non-existent ticket: {ticket_id}."
-                        )
-                        return False
-
-                    ticket_to_update.form_data = form_data
-                    await session.commit()
-                    logger.info(f"Ticket {ticket_id} updated.")
-                    return True
-
-                except Exception as e:
-                    await session.rollback()
-                    logger.error(f"Error updating ticket {ticket_id}: {e}")
-                    return False
-
     async def delete_ticket(self, ticket_id: str, user_id: int) -> bool:
-        """
-        Асинхронное удаление заявки из базы данных.
-
-        Args:
-            ticket_id: Идентификатор заявки для удаления
-            user_id: ID пользователя ВКонтакте (для проверки прав доступа)
-
-        Returns:
-            bool: True если заявка успешно удалена, False если не найдена,
-                  не принадлежит пользователю или произошла ошибка
-        """
+        session: AsyncSession
         async with self.async_session_maker() as session:
             async with session.begin():
                 try:
-                    stmt = select(Ticket).where(Ticket.ticket_id == str(ticket_id))
-                    result = await session.execute(stmt)
-                    ticket_to_delete = result.scalar_one_or_none()
+                    stmt_select = (
+                        select(Ticket.ticket_id)
+                        .where(Ticket.ticket_id == ticket_id)
+                        .where(Ticket.user_id == user_id)
+                    )
+                    result_select = await session.execute(stmt_select)
+                    ticket_exists = result_select.scalar_one_or_none()
 
-                    if not ticket_to_delete:
-                        logger.warning(f"Delete failed: Ticket not found: {ticket_id}.")
+                    if not ticket_exists:
+                        stmt_check = select(Ticket).where(Ticket.ticket_id == ticket_id)
+                        result_check = await session.execute(stmt_check)
+                        ticket_any = result_check.scalar_one_or_none()
+                        if not ticket_any:
+                            logger.warning(
+                                f"Delete failed: Ticket not found: {ticket_id}."
+                            )
+                        else:
+                            logger.warning(
+                                f"Delete failed: Ticket {ticket_id} does not "
+                                f"belong to user {user_id}."
+                            )
                         return False
 
-                    if ticket_to_delete.user_id != int(user_id):
+                    stmt_delete = (
+                        delete(Ticket)
+                        .where(Ticket.ticket_id == ticket_id)
+                        .where(Ticket.user_id == user_id)
+                    )
+                    result_delete = await session.execute(stmt_delete)
+
+                    if result_delete.rowcount > 0:
+                        logger.info(
+                            f"Ticket {ticket_id} belonging to user {user_id} deleted successfully."
+                        )
+                        return True
+                    else:
                         logger.warning(
-                            f"Delete failed: Ticket {ticket_id} does not "
-                            f"belong to user {user_id}."
+                            f"Delete seemed to fail for ticket {ticket_id} after verification pass (rowcount=0)."
                         )
                         return False
 
-                    await session.delete(ticket_to_delete)
-                    await session.commit()
-                    logger.info(
-                        f"Ticket {ticket_id} deleted successfully by user {user_id}."
+                except SQLAlchemyError as e:
+                    await session.rollback()
+                    log_msg = (
+                        f"Database error deleting ticket {ticket_id} for user {user_id}"
                     )
-                    return True
-
+                    logger.error(f"{log_msg}: {e}")
+                    return False
                 except Exception as e:
                     await session.rollback()
-                    log_msg = f"Error deleting ticket {ticket_id} by user {user_id}"
+                    log_msg = f"Unexpected error deleting ticket {ticket_id} for user {user_id}"
                     logger.error(f"{log_msg}: {e}")
                     return False

@@ -1,11 +1,12 @@
 from vkbottle import Keyboard, KeyboardButtonColor, Text
 import logging
+from typing import List, Dict, Any
+from . import config
 
 logger = logging.getLogger(__name__)
 
 
 def get_start_keyboard() -> str:
-    """Создает стартовую клавиатуру."""
     keyboard = Keyboard(inline=False)
     keyboard.add(
         Text("Заполнить заявку", payload={"command": "start_form"}),
@@ -19,7 +20,6 @@ def get_start_keyboard() -> str:
 
 
 def get_form_keyboard() -> str:
-    """Создает клавиатуру для процесса заполнения формы."""
     keyboard = Keyboard(inline=False)
     keyboard.add(
         Text("Отмена", payload={"command": "cancel_form"}),
@@ -29,7 +29,6 @@ def get_form_keyboard() -> str:
 
 
 def get_submit_keyboard() -> str:
-    """Создает клавиатуру для отправки заполненной формы."""
     keyboard = Keyboard(inline=False)
     keyboard.add(
         Text("Отправить", payload={"command": "submit_form"}),
@@ -42,23 +41,33 @@ def get_submit_keyboard() -> str:
     return keyboard.get_json()
 
 
-def get_ticket_list_keyboard(tickets: list) -> str:
-    """Создает клавиатуру для списка заявок с кнопками выбора (по номеру)."""
+def get_ticket_list_keyboard(tickets: List[Dict[str, Any]]) -> str:
     keyboard = Keyboard(inline=False)
-    max_buttons = 5
-    for i, ticket in enumerate(tickets[:max_buttons], 1):
+    max_buttons = config.MAX_TICKET_LIST_BUTTONS
+    displayed_tickets = tickets[:max_buttons]
+
+    for i, ticket in enumerate(displayed_tickets, 1):
+        ticket_id = ticket.get("ticket_id")
+        if not ticket_id:
+            logger.warning(
+                f"Ticket ID missing for ticket at index {i - 1} in list: {ticket}"
+            )
+            continue
+
         button_text = str(i)
         keyboard.add(
             Text(
                 button_text,
-                payload={"command": "view_ticket", "ticket_id": ticket["ticket_id"]},
+                payload={"command": "view_ticket", "ticket_id": str(ticket_id)},
             ),
             color=KeyboardButtonColor.SECONDARY,
         )
-        if len(tickets[:max_buttons]) > 1 and i < len(tickets[:max_buttons]):
+        if keyboard.buttons and i < len(displayed_tickets):
             keyboard.row()
 
-    keyboard.row()
+    if keyboard.buttons:
+        keyboard.row()
+
     keyboard.add(
         Text("Заполнить заявку", payload={"command": "start_form"}),
         color=KeyboardButtonColor.PRIMARY,
@@ -67,7 +76,6 @@ def get_ticket_list_keyboard(tickets: list) -> str:
 
 
 def get_ticket_detail_keyboard(ticket_id: str) -> str:
-    """Создает клавиатуру для просмотра деталей заявки."""
     logger.debug(f"Creating detail keyboard for ticket: {ticket_id}")
     keyboard = Keyboard(inline=False)
     keyboard.add(
@@ -90,7 +98,6 @@ def get_ticket_detail_keyboard(ticket_id: str) -> str:
 
 
 def get_delete_confirm_keyboard(ticket_id: str) -> str:
-    """Создает клавиатуру для подтверждения удаления заявки."""
     keyboard = Keyboard(inline=False)
     keyboard.add(
         Text(
