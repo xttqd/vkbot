@@ -43,8 +43,7 @@ def get_submit_keyboard() -> str:
 
 def get_ticket_list_keyboard(tickets: List[Dict[str, Any]]) -> str:
     keyboard = Keyboard(inline=False)
-    max_buttons = config.MAX_TICKET_LIST_BUTTONS
-    displayed_tickets = tickets[:max_buttons]
+    displayed_tickets = tickets[: config.MAX_TICKET_LIST_BUTTONS]
 
     for i, ticket in enumerate(displayed_tickets, 1):
         ticket_id = ticket.get("ticket_id")

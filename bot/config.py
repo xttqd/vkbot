@@ -51,7 +51,6 @@ if not NOTIFICATION_CHAT_ID:
         "NOTIFICATION_CHAT_ID is not configured or invalid in .env. Admin notifications will be disabled."
     )
 
-ERROR_GENERIC: Final[str] = "Произошла непредвиденная ошибка. Попробуйте еще раз позже."
 ERROR_FIELD_EMPTY: Final[str] = (
     "Поле не может быть пустым. Пожалуйста, укажите значение."
 )

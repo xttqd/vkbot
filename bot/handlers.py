@@ -35,6 +35,8 @@ class BotHandlers:
         )
         self.from_users_or_other_chats_rule = ~self.ignore_notification_chat_rule
 
+        self.is_filling_form_rule = IsFillingFormRule(self.form_handler)
+
     async def start_handler(self, message: Message) -> None:
         logger.info(f"Start command received from user {message.from_id}")
         await message.answer(
@@ -387,6 +389,11 @@ class BotHandlers:
 
         return False
 
+    async def delete_request_handler(self, message: Message) -> None:
+        user_id: int = message.from_id
+        logger.info(f"Delete request command received from user {user_id}")
+        await self.list_tickets_handler(message)
+
     async def default_handler(self, message: Message) -> None:
         user_id: int = message.from_id
         text: str = message.text.strip()
@@ -510,17 +517,25 @@ class BotHandlers:
         )(self.start_handler)
 
         self.bot.on.message(
+            self.is_filling_form_rule,
             self.from_users_or_other_chats_rule,
-            IsFillingFormRule(self.form_handler),
-            ~PayloadRule({}),
+            ~PayloadRule({"command": "cancel_form"}),
         )(self.form_message_handler)
 
-        self.bot.on.message(self.from_users_or_other_chats_rule)(self.default_handler)
+        self.bot.on.message(
+            ~self.is_filling_form_rule,
+            self.from_users_or_other_chats_rule,
+        )(self.default_handler)
 
         async def ignore_chat_handler(message: Message) -> NoReturn:
             logger.debug(f"Ignoring message in notification chat {message.peer_id}")
 
         self.bot.on.message(self.ignore_notification_chat_rule)(ignore_chat_handler)
+
+        self.bot.on.message(
+            PayloadRule({"command": "delete_request"}),
+            self.from_users_or_other_chats_rule,
+        )(self.delete_request_handler)
 
         logger.info("Handlers registered.")
 

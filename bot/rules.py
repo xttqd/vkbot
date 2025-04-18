@@ -9,13 +9,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class IsFillingFormRule(ABCRule):
+class IsFillingFormRule(ABCRule[Message]):
     def __init__(self, form_handler: "FormHandler"):
         self.form_handler = form_handler
 
-    async def check(self, message: Message) -> bool:
-        is_filling = message.from_id in self.form_handler.user_forms
-        logger.debug(
-            f"Checking IsFillingFormRule for user {message.from_id}: {is_filling}"
-        )
-        return is_filling
+    async def check(self, event: Message) -> bool:
+        return event.peer_id in self.form_handler.user_forms
